@@ -1,0 +1,22 @@
+// 22 - Хакрківська область
+// 1293 - м. Харків та Харківська територіальна громада
+{
+  "api_url": "https://api.ukrainealarm.com/api/v3/alerts/1293",
+  "auth_header": "place your token here",
+  "audio_files": {
+    "AIR": "sounds/air_1.mp3",
+    "ARTILLERY": "sounds/air_alert.mp3",
+    "URBAN_FIGHTS": "sounds/air_alert.mp3",
+    "CHEMICAL": "sounds/air_alert.mp3",
+    "NUCLEAR": "sounds/air_alert.mp3",
+    "UNKNOWN": "sounds/air_alert.mp3"
+  },
+  "alert_on_empty": "sounds/air_2.mp3",
+  "debug": true,
+  "time_zone": "Europe/Kiev",
+  "log_to_file": true, 
+  "log_file_path": "app.log",
+  "repeat_audio_file": "sounds/air_1.mp3",
+  "repeat_interval_min": 15,
+  "request_interval_sec": 30
+}

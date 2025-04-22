@@ -1,0 +1,97 @@
+name: Binaries Builds
+on:
+  push:
+    tags:
+      - '*'
+      - '**'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: '0'
+      - name: Define a tag
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+
+  build-windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Set up Go (or replace with your language runtime)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Build Binary
+        run: |
+          go get -v ./...
+          go build -tags timetzdata -o signal-windows-amd64 .
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signal-windows-amd64
+          path: signal-windows-amd64
+  build-linux:
+    needs: prepare
+    runs-on: ubuntu-latest      
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Set up Go (or replace with your language runtime)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Build Binary
+        run: |
+          sudo apt update 
+          sudo apt install libasound2-dev
+          go get -v ./...
+          go build -tags timetzdata -o signal-linux-amd64 .
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signal-linux-amd64
+          path: signal-linux-amd64
+  build-macos:
+    needs: prepare
+    runs-on: macos-latest      
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Set up Go (or replace with your language runtime)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Build Binary
+        run: |
+          uname -m
+          go get -v ./...
+          go build -tags timetzdata -o signal-darwin-aarch64 .
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signal-darwin-aarch64
+          path: signal-darwin-aarch64
+  release:
+    needs: [ build-windows, build-linux, build-macos, prepare ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: signal-*/signal-*
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          body: "Automated release from the release branch."
+        env:
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
+  
