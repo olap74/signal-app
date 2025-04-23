@@ -17,6 +17,7 @@
   "log_to_file": true, 
   "log_file_path": "app.log",
   "repeat_audio_file": "sounds/air_1.mp3",
+  "enable_repeat_audio": true,
   "repeat_interval_min": 15,
   "request_interval_sec": 30
 }
