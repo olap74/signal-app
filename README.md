@@ -5,7 +5,7 @@
 
 ## Налаштування
 
-1. Скачайте [бінарний файл](https://github.com/olap74/signal-app/releases) для своєї операційної системи. Підтримується Windows x64, Linux x64 та MacOS aarch64 (Apple Silicon)
+1. Скачайте [бінарний файл](https://github.com/olap74/signal-app/releases) для своєї операційної системи. Змініть імʼя файла для windows, додавши розширення `.exe`. Підтримується Windows x64, Linux x64 та MacOS aarch64 (Apple Silicon)
 2. Створіть файл налаштувань `config.json`, або скачайте його з [репозиторія](https://github.com/olap74/signal-app/blob/main/config.json)
 3. Пропишіть у файл налаштувань токен для авторизації Ukrainealarm. Токен можна отримати [відправивши запит](https://api.ukrainealarm.com/)
 4. Налаштуйте (якщо потрібно) інші параметри, та запустіть програму.
