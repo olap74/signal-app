@@ -29,6 +29,7 @@ type Config struct {
 	RepeatAudioFile    string            `json:"repeat_audio_file"`
 	RepeatIntervalMin  int               `json:"repeat_interval_min"`
 	RequestIntervalSec int               `json:"request_interval_sec"`
+	EnableRepeatAudio  bool              `json:"enable_repeat_audio"`
 }
 
 type Region struct {
@@ -369,12 +370,12 @@ func checkAndHandleStateChange(state *State, currentAlerts map[string]bool, aler
 }
 
 func checkAndPlayRepeatAudio(state *State, config *Config, location *time.Location, statePath string) {
-	if config.RepeatAudioFile == "" || config.RepeatIntervalMin <= 0 {
+	if !config.EnableRepeatAudio || config.RepeatAudioFile == "" || config.RepeatIntervalMin <= 0 {
 		return
 	}
 
 	for alertType := range state.ActiveAlertTypes {
-		lastUpdateTime, err := time.Parse(time.RFC3339, state.LastUpdate) // Парсимо як UTC
+		lastUpdateTime, err := time.Parse(time.RFC3339, state.LastUpdate)
 		if err != nil {
 			log.Printf("Помилка парсингу часу lastUpdate: %v", err)
 			continue
