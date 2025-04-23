@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -49,106 +48,106 @@ type State struct {
 }
 
 func main() {
-	// Парсим флаги
-	configPath := flag.String("config", "config.json", "Путь к файлу настроек")
-	statePath := flag.String("state", "state.json", "Путь к файлу состояния")
-	help := flag.Bool("help", false, "Вывести информацию о настройках и выйти")
-	configDesc := flag.Bool("config-desc", false, "Вывести описание файла конфигурации и выйти")
+	// Розбір прапорців
+	configPath := flag.String("config", "config.json", "Шлях до файлу налаштувань")
+	statePath := flag.String("state", "state.json", "Шлях до файлу стану")
+	help := flag.Bool("help", false, "Вивести інформацію про налаштування та вийти")
+	configDesc := flag.Bool("config-desc", false, "Вивести опис файлу конфігурації та вийти")
 	flag.Parse()
 
-	// Если указан флаг help, выводим информацию о настройках
+	// Якщо вказано прапорець help, виводимо інформацію про налаштування
 	if *help {
-		fmt.Println("Программа для мониторинга событий и воспроизведения аудио.")
-		fmt.Println("Доступные флаги:")
+		fmt.Println("Програма для моніторингу подій та відтворення аудіо.")
+		fmt.Println("Доступні прапорці:")
 		flag.PrintDefaults()
 		return
 	}
 
-	// Если указан флаг config-desc, выводим описание файла конфигурации
+	// Якщо вказано прапорець config-desc, виводимо опис файлу конфігурації
 	if *configDesc {
 		printConfigDescription()
 		return
 	}
 
-	// Загружаем конфигурацию
+	// Завантажуємо конфігурацію
 	config, err := loadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Ошибка загрузки конфигурации: %v", err)
+		log.Fatalf("Помилка завантаження конфігурації: %v", err)
 	}
 
-	// Настраиваем логирование
+	// Налаштовуємо логування
 	setupLogging(config)
 
-	// Загружаем предыдущее состояние
+	// Завантажуємо попередній стан
 	state, err := loadState(*statePath)
 	if err != nil {
-		log.Printf("Не удалось загрузить предыдущее состояние: %v", err)
+		log.Printf("Не вдалося завантажити попередній стан: %v", err)
 		state = &State{
 			ActiveAlertTypes: make(map[string]bool),
-			LastUpdate:       "неизвестно",
+			LastUpdate:       "невідомо",
 			LastPlayed:       make(map[string]time.Time),
 		}
 	}
 
-	// Определяем локальную временную зону
+	// Визначаємо локальну часову зону
 	location, err := time.LoadLocation(config.TimeZone)
 	if err != nil {
-		log.Fatalf("Ошибка загрузки временной зоны: %v", err)
+		log.Fatalf("Помилка завантаження часової зони: %v", err)
 	}
 
-	// Делаем первый запрос к API
+	// Робимо перший запит до API
 	alerts, lastUpdate, err := fetchAlerts(config)
 	if err != nil {
-		log.Fatalf("Ошибка получения данных при запуске: %v", err)
+		log.Fatalf("Помилка отримання даних під час запуску: %v", err)
 	}
 
-	// Преобразуем время lastUpdate в локальную временную зону
+	// Перетворюємо час lastUpdate у локальну часову зону
 	lastUpdateLocal := convertToLocalTime(lastUpdate, location, len(alerts) > 0)
 
-	// Создаем карту текущих активных типов событий
+	// Створюємо карту поточних активних типів подій
 	currentAlerts := make(map[string]bool)
 	for _, alert := range alerts {
 		currentAlerts[alert.Type] = true
 	}
 
-	// Проверяем изменения состояния при запуске
-	checkAndHandleStateChange(state, currentAlerts, lastUpdateLocal, config, *statePath)
+	// Перевіряємо зміни стану під час запуску
+	checkAndHandleStateChange(state, currentAlerts, alerts, lastUpdateLocal, config, *statePath)
 
-	// Выводим текущее состояние при запуске
+	// Виводимо поточний стан під час запуску
 	printInitialState(state)
 
-	// Устанавливаем интервал запросов к серверу
+	// Встановлюємо інтервал запитів до сервера
 	requestInterval := time.Duration(config.RequestIntervalSec) * time.Second
 	if config.RequestIntervalSec <= 0 {
-		requestInterval = 30 * time.Second // Значение по умолчанию
+		requestInterval = 30 * time.Second // Значення за замовчуванням
 	}
 
-	// Основной цикл
+	// Основний цикл
 	for {
-		// Делаем запрос к API
+		// Робимо запит до API
 		alerts, lastUpdate, err := fetchAlerts(config)
 		if err != nil {
-			log.Printf("Ошибка получения данных: %v", err)
+			log.Printf("Помилка отримання даних: %v", err)
 			time.Sleep(requestInterval)
 			continue
 		}
 
-		// Проверяем, есть ли активные тревоги
+		// Перевіряємо, чи є активні тривоги
 		hasActiveAlerts := len(alerts) > 0
 
-		// Преобразуем время lastUpdate в локальную временную зону
+		// Перетворюємо час lastUpdate у локальну часову зону
 		lastUpdateLocal := convertToLocalTime(lastUpdate, location, hasActiveAlerts)
 
-		// Создаем карту текущих активных типов событий
+		// Створюємо карту поточних активних типів подій
 		currentAlerts := make(map[string]bool)
 		for _, alert := range alerts {
 			currentAlerts[alert.Type] = true
 		}
 
-		// Проверяем изменения состояния
-		checkAndHandleStateChange(state, currentAlerts, lastUpdateLocal, config, *statePath)
+		// Перевіряємо зміни стану
+		checkAndHandleStateChange(state, currentAlerts, alerts, lastUpdateLocal, config, *statePath)
 
-		// Проверяем необходимость воспроизведения повторного аудио
+		// Перевіряємо необхідність відтворення повторного аудіо
 		checkAndPlayRepeatAudio(state, config, location, *statePath)
 
 		time.Sleep(requestInterval)
@@ -231,20 +230,20 @@ func fetchAlerts(config *Config) ([]Alert, string, error) {
 
 func playAudio(path string) {
 	if path == "" {
-		log.Println("Аудиофайл не указан")
+		log.Println("Аудіофайл не вказано")
 		return
 	}
 
 	f, err := os.Open(path)
 	if err != nil {
-		log.Printf("Ошибка открытия аудиофайла: %v", err)
+		log.Printf("Помилка відкриття аудіофайлу: %v", err)
 		return
 	}
 	defer f.Close()
 
 	streamer, format, err := mp3.Decode(f)
 	if err != nil {
-		log.Printf("Ошибка декодирования аудиофайла: %v", err)
+		log.Printf("Помилка декодування аудіофайлу: %v", err)
 		return
 	}
 	defer streamer.Close()
@@ -275,12 +274,12 @@ func loadState(path string) (*State, error) {
 func saveState(state *State, path string) {
 	data, err := json.Marshal(state)
 	if err != nil {
-		log.Printf("Ошибка сохранения состояния: %v", err)
+		log.Printf("Помилка збереження стану: %v", err)
 		return
 	}
-	err = ioutil.WriteFile(path, data, 0644)
+	err = os.WriteFile(path, data, 0644) // Заменено ioutil.WriteFile на os.WriteFile
 	if err != nil {
-		log.Printf("Ошибка записи состояния в файл: %v", err)
+		log.Printf("Помилка запису стану у файл: %v", err)
 	}
 }
 
@@ -288,7 +287,7 @@ func setupLogging(config *Config) {
 	if config.LogToFile {
 		logFile, err := os.OpenFile(config.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			log.Fatalf("Ошибка открытия файла лога: %v", err)
+			log.Fatalf("Помилка відкриття файлу логу: %v", err)
 		}
 		multiWriter := io.MultiWriter(os.Stdout, logFile)
 		log.SetOutput(multiWriter)
@@ -300,64 +299,70 @@ func setupLogging(config *Config) {
 func convertToLocalTime(utcTime string, location *time.Location, hasActiveAlerts bool) string {
 	parsedTime, err := time.Parse(time.RFC3339, utcTime)
 	if err != nil {
-		log.Printf("Ошибка парсинга времени в формате RFC3339: %v", err)
+		log.Printf("Помилка парсингу часу у форматі RFC3339: %v", err)
 		return utcTime
 	}
 	localTime := parsedTime.In(location)
 	if hasActiveAlerts {
-		log.Printf("Тревога активна. Время начала тревоги: %s", localTime.Format("2006-01-02 15:04:05"))
+		log.Printf("Тривога активна. Час початку тривоги: %s", localTime.Format("2006-01-02 15:04:05"))
 	} else {
-		log.Printf("Время окончания последней тревоги: %s", localTime.Format("2006-01-02 15:04:05"))
+		log.Printf("Час завершення останньої тривоги: %s", localTime.Format("2006-01-02 15:04:05"))
 	}
 	return localTime.Format("2006-01-02 15:04:05")
 }
 
 func printInitialState(state *State) {
-	status := "выключено"
+	status := "вимкнено"
 	if len(state.ActiveAlertTypes) > 0 {
-		status = "включено"
+		status = "увімкнено"
 	}
-	log.Printf("Текущее состояние: %s, время последнего обновления: %s", status, state.LastUpdate)
+	log.Printf("Поточний стан: %s, час останнього оновлення: %s", status, state.LastUpdate)
 }
 
-func checkAndHandleStateChange(state *State, currentAlerts map[string]bool, lastUpdate string, config *Config, statePath string) {
-	// Проверяем корректность времени lastUpdate
-	parsedTime, err := time.Parse("2006-01-02 15:04:05", lastUpdate)
-	if err != nil {
-		log.Printf("Некорректное время начала события: %s. Устанавливаем текущее время.", lastUpdate)
-		parsedTime = time.Now()
-	} else {
-		// Преобразуем время в локальную временную зону
-		location, _ := time.LoadLocation(config.TimeZone)
-		parsedTime = parsedTime.In(location)
-	}
-	lastUpdate = parsedTime.Format("2006-01-02 15:04:05")
+func checkAndHandleStateChange(state *State, currentAlerts map[string]bool, alerts []Alert, lastUpdate string, config *Config, statePath string) {
+	var relevantLastUpdate string
 
-	// Если время в state отличается от времени из ответа, обновляем его
-	if state.LastUpdate != lastUpdate {
-		log.Printf("Обновление времени в state.json: %s -> %s", state.LastUpdate, lastUpdate)
-		state.LastUpdate = lastUpdate
+	// Якщо подія активна, беремо lastUpdate з першого елемента activeAlerts
+	if len(alerts) > 0 {
+		relevantLastUpdate = alerts[0].LastUpdate
+	} else {
+		// Якщо подія неактивна, беремо lastUpdate з відповіді сервера
+		relevantLastUpdate = lastUpdate
+	}
+
+	// Парсимо час relevantLastUpdate як RFC3339
+	parsedTime, err := time.Parse(time.RFC3339, relevantLastUpdate)
+	if err != nil {
+		log.Printf("Некоректний час початку події: %s. Встановлюємо поточний час.", relevantLastUpdate)
+		parsedTime = time.Now().UTC() // Встановлюємо поточний час в UTC
+	}
+	relevantLastUpdateUTC := parsedTime.Format(time.RFC3339) // Зберігаємо у форматі UTC
+
+	// Якщо час у state відрізняється від часу з відповіді, оновлюємо його
+	if state.LastUpdate != relevantLastUpdateUTC {
+		log.Printf("Оновлення часу у state.json: %s -> %s", state.LastUpdate, relevantLastUpdateUTC)
+		state.LastUpdate = relevantLastUpdateUTC
 		saveState(state, statePath)
 	}
 
-	// Обрабатываем новые события
+	// Обробляємо нові події
 	for alertType := range currentAlerts {
 		if !state.ActiveAlertTypes[alertType] {
-			// Новое событие — сохраняем состояние и проигрываем аудиофайл
+			// Нова подія — зберігаємо стан та відтворюємо звук початку події
 			state.ActiveAlertTypes[alertType] = true
 			saveState(state, statePath)
-			log.Printf("Событие включено: %s, время: %s", alertType, lastUpdate)
+			log.Printf("Подія увімкнено: %s, час: %s", alertType, relevantLastUpdateUTC)
 			playAudio(config.AudioFiles[alertType])
 		}
 	}
 
-	// Обрабатываем исчезнувшие события
+	// Обробляємо зниклі події
 	for alertType := range state.ActiveAlertTypes {
 		if !currentAlerts[alertType] {
-			// Событие исчезло — сохраняем состояние и проигрываем аудиофайл для пропадания
+			// Подія зникла — зберігаємо стан та відтворюємо звук завершення події
 			delete(state.ActiveAlertTypes, alertType)
 			saveState(state, statePath)
-			log.Printf("Событие выключено: %s, время окончания: %s", alertType, lastUpdate)
+			log.Printf("Подія вимкнено: %s, час завершення: %s", alertType, relevantLastUpdateUTC)
 			playAudio(config.AlertOnEmpty)
 		}
 	}
@@ -369,29 +374,31 @@ func checkAndPlayRepeatAudio(state *State, config *Config, location *time.Locati
 	}
 
 	for alertType := range state.ActiveAlertTypes {
-		lastUpdateTime, err := time.Parse("2006-01-02 15:04:05", state.LastUpdate)
+		lastUpdateTime, err := time.Parse(time.RFC3339, state.LastUpdate) // Парсимо як UTC
 		if err != nil {
-			log.Printf("Ошибка парсинга времени lastUpdate: %v", err)
+			log.Printf("Помилка парсингу часу lastUpdate: %v", err)
 			continue
 		}
 
-		// Преобразуем lastUpdateTime в локальную временную зону
+		// Перетворюємо lastUpdateTime у локальну часову зону
 		lastUpdateTime = lastUpdateTime.In(location)
 
-		// Рассчитываем текущее время и ближайший временной промежуток
+		// Розраховуємо поточний час
 		now := time.Now().In(location)
+
+		// Перевіряємо, чи перетинається поточний час з часовими проміжками від часу початку події
 		elapsedMinutes := int(now.Sub(lastUpdateTime).Minutes())
 		if elapsedMinutes < 0 {
-			continue // Пропускаем, если текущее время меньше времени начала события
+			continue // Пропускаємо, якщо поточний час менший за час початку події
 		}
 
-		// Проверяем, пересекается ли текущее время с временными промежутками
+		// Перевіряємо, чи потрібно відтворити сигнал
 		if elapsedMinutes%config.RepeatIntervalMin == 0 {
 			if lastPlayed, exists := state.LastPlayed[alertType]; exists && lastPlayed.Equal(now.Truncate(time.Minute)) {
-				continue // Пропускаем, если сигнал уже был воспроизведен в этом временном промежутке
+				continue // Пропускаємо, якщо сигнал вже був відтворений у цьому часовому проміжку
 			}
 
-			log.Printf("Воспроизведение повторного аудио для события: %s в %s", alertType, now.Format("2006-01-02 15:04:05"))
+			log.Printf("Відтворення повторного аудіо для події: %s о %s", alertType, now.Format("2006-01-02 15:04:05"))
 			playAudio(config.RepeatAudioFile)
 			state.LastPlayed[alertType] = now.Truncate(time.Minute)
 			saveState(state, statePath)
@@ -400,23 +407,23 @@ func checkAndPlayRepeatAudio(state *State, config *Config, location *time.Locati
 }
 
 func printConfigDescription() {
-	fmt.Println("Описание файла конфигурации:")
+	fmt.Println("Опис файлу конфігурації:")
 	fmt.Println(`
 {
-  "api_url": "URL для API запросов",
-  "auth_header": "Заголовок авторизации для API",
+  "api_url": "URL для API запитів",
+  "auth_header": "Заголовок авторизації для API",
   "audio_files": {
-    "AIR": "Путь к аудиофайлу для события AIR",
-    "FIRE": "Путь к аудиофайлу для события FIRE"
+    "AIR": "Шлях до аудіофайлу для події AIR",
+    "FIRE": "Шлях до аудіофайлу для події FIRE"
   },
-  "alert_on_empty": "Путь к аудиофайлу для события, когда массив пуст",
-  "debug": true, // Включение режима отладки
-  "log_to_file": true, // Включение дублирования лога в файл
-  "log_file_path": "Путь к файлу лога",
-  "time_zone": "Локальная временная зона, например, Europe/Kiev",
-  "repeat_audio_file": "Путь к аудиофайлу для повторного воспроизведения",
-  "repeat_interval_min": 10 // Интервал повторного воспроизведения в минутах
-  "request_interval_sec": 30 // Интервал запросов к серверу в секундах
+  "alert_on_empty": "Шлях до аудіофайлу для події, коли масив порожній",
+  "debug": true, // Увімкнення режиму налагодження
+  "log_to_file": true, // Увімкнення дублювання логу у файл
+  "log_file_path": "Шлях до файлу логу",
+  "time_zone": "Локальна часова зона, наприклад, Europe/Kiev",
+  "repeat_audio_file": "Шлях до аудіофайлу для повторного відтворення",
+  "repeat_interval_min": 10 // Інтервал повторного відтворення у хвилинах
+  "request_interval_sec": 30 // Інтервал запитів до сервера у секундах
 }
     `)
 }
