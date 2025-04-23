@@ -32,11 +32,11 @@ jobs:
       - name: Build Binary
         run: |
           go get -v ./...
-          go build -tags timetzdata -o signal-windows-amd64.exe .
+          go build -tags timetzdata -o signal-windows-amd64 .
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: signal-windows-amd64.exe
+          name: signal-windows-amd64
           path: signal-windows-amd64
   build-linux:
     needs: prepare
