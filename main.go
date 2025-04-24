@@ -29,7 +29,7 @@ type Config struct {
 	RepeatAudioFile    string            `json:"repeat_audio_file"`
 	RepeatIntervalMin  int               `json:"repeat_interval_min"`
 	RequestIntervalSec int               `json:"request_interval_sec"`
-	EnableRepeatAudio  bool              `json:"enable_repeat_audio"`
+	EnableRepeatAudio  bool              `json:"enable_repeat_audio"` // Додано поле для керування повторюваним сигналом
 }
 
 type Region struct {
@@ -85,9 +85,27 @@ func main() {
 		log.Printf("Не вдалося завантажити попередній стан: %v", err)
 		state = &State{
 			ActiveAlertTypes: make(map[string]bool),
-			LastUpdate:       "невідомо",
+			LastUpdate:       "",
 			LastPlayed:       make(map[string]time.Time),
 		}
+	}
+
+	// Синхронізація часу з сервером
+	_, lastUpdate, err := fetchAlerts(config) // Прибираємо змінну alerts
+	if err != nil {
+		log.Fatalf("Помилка отримання даних під час запуску: %v", err)
+	}
+	log.Printf("Синхронізація: час з сервера: %s, час у state.json: %s", lastUpdate, state.LastUpdate)
+
+	if state.LastUpdate != lastUpdate {
+		log.Printf("Оновлюємо час у state.json: %s -> %s", state.LastUpdate, lastUpdate)
+		state.LastUpdate = lastUpdate
+		saveState(state, *statePath)
+	}
+
+	// Перевіряємо, що час у state.json синхронізовано
+	if state.LastUpdate != lastUpdate {
+		log.Fatalf("Помилка синхронізації часу: час у state.json (%s) не збігається з часом сервера (%s)", state.LastUpdate, lastUpdate)
 	}
 
 	// Визначаємо локальну часову зону
@@ -96,27 +114,11 @@ func main() {
 		log.Fatalf("Помилка завантаження часової зони: %v", err)
 	}
 
-	// Робимо перший запит до API
-	alerts, lastUpdate, err := fetchAlerts(config)
-	if err != nil {
-		log.Fatalf("Помилка отримання даних під час запуску: %v", err)
-	}
+	// Основна логіка програми
+	runMainLoop(config, state, location, *statePath)
+}
 
-	// Перетворюємо час lastUpdate у локальну часову зону
-	lastUpdateLocal := convertToLocalTime(lastUpdate, location, len(alerts) > 0)
-
-	// Створюємо карту поточних активних типів подій
-	currentAlerts := make(map[string]bool)
-	for _, alert := range alerts {
-		currentAlerts[alert.Type] = true
-	}
-
-	// Перевіряємо зміни стану під час запуску
-	checkAndHandleStateChange(state, currentAlerts, alerts, lastUpdateLocal, config, *statePath)
-
-	// Виводимо поточний стан під час запуску
-	printInitialState(state)
-
+func runMainLoop(config *Config, state *State, location *time.Location, statePath string) {
 	// Встановлюємо інтервал запитів до сервера
 	requestInterval := time.Duration(config.RequestIntervalSec) * time.Second
 	if config.RequestIntervalSec <= 0 {
@@ -125,7 +127,7 @@ func main() {
 
 	// Основний цикл
 	for {
-		// Робимо запит до API
+		// Крок 1: Запит на отримання даних з сервера
 		alerts, lastUpdate, err := fetchAlerts(config)
 		if err != nil {
 			log.Printf("Помилка отримання даних: %v", err)
@@ -133,35 +135,37 @@ func main() {
 			continue
 		}
 
-		// Перевіряємо, чи є активні тривоги
-		hasActiveAlerts := len(alerts) > 0
+		log.Printf("Час з сервера (UTC): %s", lastUpdate)
 
-		// Перетворюємо час lastUpdate у локальну часову зону
-		lastUpdateLocal := convertToLocalTime(lastUpdate, location, hasActiveAlerts)
+		// Крок 2: Порівняння часу останнього оновлення
+		if state.LastUpdate != lastUpdate {
+			log.Printf("Оновлюємо час у state.json: %s -> %s", state.LastUpdate, lastUpdate)
+			state.LastUpdate = lastUpdate
+			saveState(state, statePath)
+		}
 
-		// Створюємо карту поточних активних типів подій
+		// Крок 3: Перевірка, чи активна подія
 		currentAlerts := make(map[string]bool)
 		for _, alert := range alerts {
 			currentAlerts[alert.Type] = true
 		}
 
-		// Перевіряємо зміни стану
-		checkAndHandleStateChange(state, currentAlerts, alerts, lastUpdateLocal, config, *statePath)
+		checkAndHandleStateChange(state, currentAlerts, alerts, lastUpdate, config, statePath)
 
-		// Перевіряємо необхідність відтворення повторного аудіо
-		checkAndPlayRepeatAudio(state, config, location, *statePath)
+		// Крок 4: Перевірка необхідності відтворення звуку
+		checkAndPlayRepeatAudio(state, config, location, statePath)
 
 		time.Sleep(requestInterval)
 	}
 }
 
 func loadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path) // Заменено ioutil.ReadFile на os.ReadFile
+	data, err := os.ReadFile(path) // Заміщено ioutil.ReadFile на os.ReadFile
 	if err != nil {
 		return nil, err
 	}
 
-	// Удаляем комментарии из JSON
+	// Видаляємо коментарі з JSON
 	cleanedData := removeComments(data)
 
 	var config Config
@@ -190,12 +194,12 @@ func fetchAlerts(config *Config) ([]Alert, string, error) {
 		return nil, "", err
 	}
 
-	// Устанавливаем заголовок авторизации
+	// Встановлюємо заголовок авторизації
 	req.Header.Set("Authorization", config.AuthHeader)
 
 	if config.Debug {
-		log.Printf("Отправка запроса: %s", config.APIURL)
-		// log.Printf("Заголовок Authorization: %s", config.AuthHeader) // Убрано из логов
+		log.Printf("Відправка запиту: %s", config.APIURL)
+		// log.Printf("Заголовок Authorization: %s", config.AuthHeader) // Прибрано з логів
 	}
 
 	client := &http.Client{}
@@ -206,11 +210,11 @@ func fetchAlerts(config *Config) ([]Alert, string, error) {
 	defer resp.Body.Close()
 
 	if config.Debug {
-		log.Printf("Получен ответ: %d", resp.StatusCode)
+		log.Printf("Отримано відповідь: %d", resp.StatusCode)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("неожиданный статус ответа: %d", resp.StatusCode)
+		return nil, "", fmt.Errorf("неочікуваний статус відповіді: %d", resp.StatusCode)
 	}
 
 	var regions []Region
@@ -257,7 +261,7 @@ func playAudio(path string) {
 }
 
 func loadState(path string) (*State, error) {
-	data, err := os.ReadFile(path) // Заменено ioutil.ReadFile на os.ReadFile
+	data, err := os.ReadFile(path) // Заміщено ioutil.ReadFile на os.ReadFile
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &State{ActiveAlertTypes: make(map[string]bool)}, nil
@@ -267,20 +271,30 @@ func loadState(path string) (*State, error) {
 	var state State
 	err = json.Unmarshal(data, &state)
 	if state.LastPlayed == nil {
-		state.LastPlayed = make(map[string]time.Time)
+		state.LastPlayed = make(map[string]time.Time) // Ініціалізуємо порожню карту
 	}
 	return &state, err
 }
 
 func saveState(state *State, path string) {
+	// Перетворюємо порожню карту LastPlayed у null для коректного збереження
+	if len(state.LastPlayed) == 0 {
+		state.LastPlayed = nil
+	}
+
 	data, err := json.Marshal(state)
 	if err != nil {
 		log.Printf("Помилка збереження стану: %v", err)
 		return
 	}
-	err = os.WriteFile(path, data, 0644) // Заменено ioutil.WriteFile на os.WriteFile
+	err = os.WriteFile(path, data, 0644) // Заміщено ioutil.WriteFile на os.WriteFile
 	if err != nil {
 		log.Printf("Помилка запису стану у файл: %v", err)
+	}
+
+	// Відновлюємо порожню карту після збереження
+	if state.LastPlayed == nil {
+		state.LastPlayed = make(map[string]time.Time)
 	}
 }
 
@@ -297,73 +311,67 @@ func setupLogging(config *Config) {
 	}
 }
 
-func convertToLocalTime(utcTime string, location *time.Location, hasActiveAlerts bool) string {
+func convertToLocalTime(utcTime string, timeZone string) string {
+	// Перетворюємо час UTC у локальну часову зону
+	location, err := time.LoadLocation(timeZone)
+	if err != nil {
+		log.Printf("Помилка завантаження часової зони: %v", err)
+		return utcTime // Повертаємо UTC, якщо часова зона недоступна
+	}
 	parsedTime, err := time.Parse(time.RFC3339, utcTime)
 	if err != nil {
 		log.Printf("Помилка парсингу часу у форматі RFC3339: %v", err)
 		return utcTime
 	}
-	localTime := parsedTime.In(location)
-	if hasActiveAlerts {
-		log.Printf("Тривога активна. Час початку тривоги: %s", localTime.Format("2006-01-02 15:04:05"))
-	} else {
-		log.Printf("Час завершення останньої тривоги: %s", localTime.Format("2006-01-02 15:04:05"))
-	}
-	return localTime.Format("2006-01-02 15:04:05")
-}
-
-func printInitialState(state *State) {
-	status := "вимкнено"
-	if len(state.ActiveAlertTypes) > 0 {
-		status = "увімкнено"
-	}
-	log.Printf("Поточний стан: %s, час останнього оновлення: %s", status, state.LastUpdate)
+	return parsedTime.In(location).Format("2006-01-02 15:04:05")
 }
 
 func checkAndHandleStateChange(state *State, currentAlerts map[string]bool, alerts []Alert, lastUpdate string, config *Config, statePath string) {
-	var relevantLastUpdate string
-
-	// Якщо подія активна, беремо lastUpdate з першого елемента activeAlerts
-	if len(alerts) > 0 {
-		relevantLastUpdate = alerts[0].LastUpdate
-	} else {
-		// Якщо подія неактивна, беремо lastUpdate з відповіді сервера
-		relevantLastUpdate = lastUpdate
+	// Перевіряємо нові події
+	var selectedAlert *Alert
+	for _, alert := range alerts {
+		if alert.Type == "AIR" {
+			selectedAlert = &alert
+			break
+		}
 	}
 
-	// Парсимо час relevantLastUpdate як RFC3339
-	parsedTime, err := time.Parse(time.RFC3339, relevantLastUpdate)
-	if err != nil {
-		log.Printf("Некоректний час початку події: %s. Встановлюємо поточний час.", relevantLastUpdate)
-		parsedTime = time.Now().UTC() // Встановлюємо поточний час в UTC
-	}
-	relevantLastUpdateUTC := parsedTime.Format(time.RFC3339) // Зберігаємо у форматі UTC
-
-	// Якщо час у state відрізняється від часу з відповіді, оновлюємо його
-	if state.LastUpdate != relevantLastUpdateUTC {
-		log.Printf("Оновлення часу у state.json: %s -> %s", state.LastUpdate, relevantLastUpdateUTC)
-		state.LastUpdate = relevantLastUpdateUTC
-		saveState(state, statePath)
+	// Якщо події з type: AIR немає, вибираємо найраніше за lastUpdate
+	if selectedAlert == nil && len(alerts) > 0 {
+		selectedAlert = &alerts[0]
+		for _, alert := range alerts {
+			if alert.LastUpdate < selectedAlert.LastUpdate {
+				selectedAlert = &alert
+			}
+		}
 	}
 
-	// Обробляємо нові події
-	for alertType := range currentAlerts {
+	// Якщо вибрано подію, обробляємо її
+	if selectedAlert != nil {
+		alertType := selectedAlert.Type
 		if !state.ActiveAlertTypes[alertType] {
-			// Нова подія — зберігаємо стан та відтворюємо звук початку події
+			// Нова подія — зберігаємо стан і відтворюємо звук початку події
 			state.ActiveAlertTypes[alertType] = true
+			state.LastPlayed[alertType] = time.Now().UTC() // Встановлюємо поточний час для події
 			saveState(state, statePath)
-			log.Printf("Подія увімкнено: %s, час: %s", alertType, relevantLastUpdateUTC)
+			log.Printf("Подія увімкнено: %s, час: %s", alertType, selectedAlert.LastUpdate)
 			playAudio(config.AudioFiles[alertType])
 		}
 	}
 
-	// Обробляємо зниклі події
+	// Логуємо стан активних подій
+	for alertType := range state.ActiveAlertTypes {
+		localTime := convertToLocalTime(lastUpdate, config.TimeZone)
+		log.Printf("Триває тривога від %s для події: %s", localTime, alertType)
+	}
+
+	// Перевіряємо зниклі події
 	for alertType := range state.ActiveAlertTypes {
 		if !currentAlerts[alertType] {
-			// Подія зникла — зберігаємо стан та відтворюємо звук завершення події
+			// Подія зникла — зберігаємо стан і відтворюємо звук закінчення події
 			delete(state.ActiveAlertTypes, alertType)
 			saveState(state, statePath)
-			log.Printf("Подія вимкнено: %s, час завершення: %s", alertType, relevantLastUpdateUTC)
+			log.Printf("Подія вимкнено: %s, час завершення: %s", alertType, lastUpdate)
 			playAudio(config.AlertOnEmpty)
 		}
 	}
@@ -371,38 +379,32 @@ func checkAndHandleStateChange(state *State, currentAlerts map[string]bool, aler
 
 func checkAndPlayRepeatAudio(state *State, config *Config, location *time.Location, statePath string) {
 	if !config.EnableRepeatAudio || config.RepeatAudioFile == "" || config.RepeatIntervalMin <= 0 {
-		return
+		return // Виходимо, якщо повторюваний сигнал вимкнено або параметри некоректні
 	}
 
+	// Вибираємо подію для відтворення повторного звуку
+	var selectedAlertType string
 	for alertType := range state.ActiveAlertTypes {
+		if selectedAlertType == "" || alertType == "AIR" {
+			selectedAlertType = alertType
+		}
+	}
+
+	// Перевіряємо, чи потрібно відтворити повторний звук для вибраної події
+	if selectedAlertType != "" {
 		lastUpdateTime, err := time.Parse(time.RFC3339, state.LastUpdate)
 		if err != nil {
-			log.Printf("Помилка парсингу часу lastUpdate: %v", err)
-			continue
+			log.Printf("Помилка парсингу часу last_update: %v", err)
+			return
 		}
 
-		// Перетворюємо lastUpdateTime у локальну часову зону
-		lastUpdateTime = lastUpdateTime.In(location)
-
-		// Розраховуємо поточний час
-		now := time.Now().In(location)
-
-		// Перевіряємо, чи перетинається поточний час з часовими проміжками від часу початку події
+		now := time.Now().UTC()
 		elapsedMinutes := int(now.Sub(lastUpdateTime).Minutes())
-		if elapsedMinutes < 0 {
-			continue // Пропускаємо, якщо поточний час менший за час початку події
-		}
 
-		// Перевіряємо, чи потрібно відтворити сигнал
-		if elapsedMinutes%config.RepeatIntervalMin == 0 {
-			if lastPlayed, exists := state.LastPlayed[alertType]; exists && lastPlayed.Equal(now.Truncate(time.Minute)) {
-				continue // Пропускаємо, якщо сигнал вже був відтворений у цьому часовому проміжку
-			}
-
-			log.Printf("Відтворення повторного аудіо для події: %s о %s", alertType, now.Format("2006-01-02 15:04:05"))
+		// Розраховуємо, чи має відтворюватися повторна подія
+		if elapsedMinutes >= config.RepeatIntervalMin && elapsedMinutes%config.RepeatIntervalMin == 0 {
+			log.Printf("Відтворення повторного звуку для події: %s", selectedAlertType)
 			playAudio(config.RepeatAudioFile)
-			state.LastPlayed[alertType] = now.Truncate(time.Minute)
-			saveState(state, statePath)
 		}
 	}
 }
